@@ -1,0 +1,447 @@
+SQL语句 
+
+	DDL		数据定义语言
+		create, drop, alter
+	DML		数据操纵语言
+		insert, delete, update, select 
+	DCL		数据控制语言
+		grant, revoke
+
+
+数据查询 
+
+	=====================
+		[root@mysql_server ~]# mysql -u root -p < jiaowu.sql 
+	=====================
+
+	单表查询
+	多表查询/连接查询 
+	嵌套查询/子查询
+
+
+一、单表查询 
+
+	select 字段名称, 字段名称, .... from 表名 [查询条件]
+
+		mysql> select Tname, Age from tutors;
+		
+		mysql> select * from tutors;
+
+		mysql> select Tname as 教师姓名, Age as 年龄 from tutors;
+		
+		mysql> select Tname 教师姓名, Age  年龄 from tutors;
+
+	
+查询条件
+	
+1、where 条件 
+
+	条件写法：
+		=, !=, >, >=, <=, <
+		and, or, not
+	
+	mysql> select Tname from tutors where Age > 80;
+
+	mysql> select * from tutors where Tname='YiDeng';
+
+	
+	and 并且 
+	
+		between n and m 
+	
+			mysql> select Tname from tutors where Age >= 70 and Age <= 80;
+
+			mysql> select Tname from tutors where Age between 70 and 80;
+		
+
+	or  或者 
+		
+		in(v1, v2, v3)
+
+		mysql> select * from tutors where Tname="YiDeng" or Tname = "HuYidao" or Tname = "YuCanghai";
+
+		mysql> select * from tutors where Tname in ("YiDeng", "HuYiDao", "YuCanghai");
+
+	
+	not   取反 
+	
+		mysql> select * from tutors where not Age > 80;
+
+	
+	模糊查询
+	
+		1) like 通配符表达式 
+		
+			通配符： 
+				%	任意字符 
+				_	任意单个字符 
+
+			mysql> select Tname from tutors where Tname like "%eng%";
+
+	
+		2) rlike 正则表达式 
+		
+			mysql> select Tname from tutors where Tname rlike "ing";
+
+			mysql> select Tname from tutors where Tname rlike "^[HJY]";
+
+	
+	
+	is null
+	is not null 
+	
+		mysql> select Name from students where CID2 is null;
+	
+		mysql> select Name from students where CID2 is not null;
+
+
+
+2、排序 
+
+	order by 字段名称 [ASC|DESC]
+	
+		DESC: 降序
+
+		mysql> select Tname, Age from tutors order by Age;
+
+		mysql> select Tname, Age from tutors order by Age DESC;
+
+		mysql> select Tname, Age from tutors where Age > 70 order by Age;
+
+
+
+3、限制查询结果的数量 
+
+	limit n[,m]
+
+		mysql> select * from tutors limit 4, 1;
+
+		mysql> select Tname, Age from tutors where Tname rlike "^[HYJ]" order by Age DESC limit 1;
+
+
+
+4、使用聚合函数 / 分组 
+
+	聚合函数：
+		sum()
+		max()
+		min()
+		avg()
+		count() 
+		
+	mysql> select avg(Age) as 平均年龄 from tutors;
+
+	mysql> select count(*) from tutors where Age > 80;
+
+	
+	分组：
+		group by 字段名称 HAVING 条件 
+		
+			mysql> select avg(Age) as 平均年龄, gender as 性别 from tutors group by Gender ;
+		
+			mysql> select count(*) as 人数, gender as 性别 from tutors group by Gender ;
+
+			mysql> select avg(Age) as 平均年龄, gender as 性别 from tutors group by Gender having 平均年龄>65;
+
+		
+		
+5、去重 
+
+	distinct 
+
+		mysql> select distinct name from tb01;
+
+		mysql> select distinct name, password from tb01;
+
+		
+		
+		
+		
+二、多表查询/连接查询 
+
+	前提条件：
+		表之间要存在相关联的字段 
+
+
+	类型：
+		内连接
+		外连接
+			左外连接
+			右外连接
+
+			
+内连接 
+
+	只有相关联字段具有相同的值时，才会显示结果
+	
+	语法：
+		select 字段名称, 字段名称  from 表名 inner join 表名 on 相关联的字段 
+	
+		方法1) 
+			
+			mysql> select students.Name, students.Age, students.Gender, tutors.Tname from students inner join tutors on students.TID=tutors.TID;
+		
+			mysql> select students.Name, courses.Cname from students inner join courses on students.CID1=courses.CID;
+
+			mysql> select students.Name, courses.Cname, tutors.Tname from students inner join courses inner join tutors on students.CID1=courses.CID and courses.TID=tutors.TID;
+
+
+		方法2) 
+		
+			mysql> select students.Name , students.Age , students.Gender , tutors.Tname from students, tutors where students.TID=tutors.TID;
+
+
+
+外连接
+	左外连接
+	右外连接 
+	
+
+	左外连接
+	
+		以左表为主，显示左表所有数据；有相关联数据时，显示，无相关联数据时，显示为NULL 
+		
+		语法：
+			select 字段名称, 字段名称  from 表名 left join 表名 on 相关联的字段 
+
+		mysql> select students.Name, students.Age , students.Gender, courses.Cname from students left join courses on students.CID1=courses.CID;
+
+
+	右外连接
+	
+		以右表为主，显示右表所有数据；有相关联数据时，显示，无相关联数据时，显示为NULL 
+		
+		语法：
+			select 字段名称, 字段名称  from 表名 right join 表名 on 相关联的字段 
+
+		mysql> select students.Name, students.Age , students.Gender, courses.Cname from courses right join students on students.CID1=courses.CID;
+
+
+	视图 view
+		
+		临时表 
+	
+		作用：用于保存多表查询的结果，避免多表查询产生交叉连接
+		
+	1、创建视图
+	
+		语法：
+			create view view_name as select_state 
+			
+		mysql> create view student_tutor_name
+			-> as
+			-> select students.Name, students.Age, students.Gender, tutors.Tname from students inner join tutors on students.TID=tutors.TID;
+
+
+	2、删除视图
+	
+		mysql> drop view student_tutor_name;
+
+		
+	
+		
+		
+三、嵌套查询
+
+	将一个查询的结果作为另一个查询的条件
+
+	mysql> select Tname, Gender , Age from tutors where Age > (select avg(Age) from tutors);
+
+	mysql> select Name from students where Age in (select Age from tutors);
+
+	
+	
+	
+	
+	
+	
+	
+	
+用户、权限 
+
+用户管理 
+
+	1、用户名格式
+	
+		username@host
+			
+			host写法：
+				1、允许本机登录   localhost 
+				2、IP地址         martin@1.1.1.1 
+				3、网段 		  martin@1.1.1.%   
+				4、主机名         martin@controller 
+				5、所有			  martin@% 
+
+	2、用户存储位置  
+	
+		mysql.user表 
+		
+		# select user, host from mysql.user; 
+		
+		
+1、删除用户
+
+	drop user 'martin'@'1.1.1.1';
+	
+	
+2、创建用户 
+
+	create user user@host identified by 'password' 
+	
+	
+	示例1： 
+	
+		mysql> create user 'martin'@'localhost' identified by 'WWW.1.com';
+		mysql> flush privileges;
+		
+		mysql> select current_user();			//查看当前登录的用户 
+		+------------------+
+		| current_user()   |
+		+------------------+
+		| martin@localhost |
+		+------------------+
+		1 row in set (0.00 sec)
+
+
+	示例2：
+	
+		mysql> create user 'martin'@'192.168.122.69' identified by 'WWW.1.com';
+
+		mysql> flush privileges;
+
+
+		登录远程数据库服务器
+		
+		[root@client_01 ~]# mysql -u martin -p -h 192.168.122.250
+
+	
+	
+3、更改用户密码 
+
+	1) set password for ...
+	
+		mysql> set password for 'martin'@'192.168.122.69' = PASSWORD("WWW.2.com");
+
+		mysql> flush privileges;
+
+	
+	2) 更新user表 
+
+		mysql> update mysql.user set authentication_string=PASSWORD("WWW.3.com") where user="martin" and host="192.168.122.69";
+		mysql> flush privileges;
+
+	
+	
+4、重置root密码
+
+	1) 编辑my.cnf配置文件 
+	
+		[mysqld]
+			skip-grant-tables=1
+		
+	2) 重启mysql服务 
+	
+	3) 登录数据，使用Update修改密码 
+	
+	4) 删除配置文件skip-grant-tables选项，重启服务 
+	
+	
+	
+
+	
+	
+权限 
+
+1、授权 
+
+	grant 权限1, 权限2 on 库名.表名 to 用户名 [identified by "password"]
+	
+		权限： 
+			create, drop, select, update, delete, insert, alter 
+			all 
+	
+		库名.表名
+			jiaowu.tutors 
+			jiowu.* 
+			*.* 
+	
+		
+			mysql> grant select on jiaowu.tutors to 'martin'@'192.168.122.69';
+			mysql> flush privileges;
+
+
+			mysql> grant all on jiaowu.* to 'martin'@'192.168.122.69';
+			mysql> flush privileges;
+
+		
+			针对update，mysql支持对每个字段授权 
+			
+
+			mysql> grant select, update(Age) on jiaowu.students to 'martin'@'192.168.122.69';
+			mysql> flush privileges;
+
+		
+			授权、同时创建用户
+			
+			mysql> grant all on jiaowu.* to 'robin'@'192.168.122.69' identified by 'WWW.1.com';
+
+			mysql> flush privileges;
+
+	
+
+2、查看权限 
+
+	mysql> show grants for 'martin'@'192.168.122.69';
+
+	
+3、撤销权限 
+
+	mysql> revoke select on jiaowu.tutors from 'martin'@'192.168.122.69';
+	mysql> flush privileges;
+
+	
+	
+	
+	
+	
+=================================================================================
+事务 
+
+1、启动事务
+
+mysql>  start transaction;
+
+2、提交事务
+
+mysql> commit ; 
+
+3、回滚
+
+mysql> rollback;
+
+=================================================================================	
+	
+
+在shell终端执行SQL
+
+	[root@mysql_server ~]# mysql -uroot -pWWW.1.com -e "select * from jiaowu.tb01"
+
+	[root@mysql_server ~]# mysql -uroot -pWWW.1.com -e "show databases"
+
+	[root@mysql_server ~]# mysql -uroot -pWWW.1.com -e "select * from jiaowu.tb01" 2> /dev/null
+
+	
+	
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	

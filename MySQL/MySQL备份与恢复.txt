@@ -1,0 +1,511 @@
+数据库备份、恢复
+
+MySQL日志：
+
+	1、错误日志
+	
+		rpm软件：
+			/var/log/mysqld.log 
+			
+		源码编译：
+			数据目录，以.err结尾的文件 
+			
+	
+	2、慢查询日志
+	
+		默认没有启用 
+		
+			[mysqld]
+			
+			slow_query_log=ON 
+			slow_query_log_file=
+			long_query_time=5
+		
+	
+
+	二进制日志 binary log 
+
+		记录任何有可能引起数据库变化的操作
+		默认存放在数据目录，建议实际部署时，把二进制日志单独存放在不同的存储设备 
+		查看二进制日志文件内容时，使用mysqlbinlog
+		
+	作用：
+
+		1、实现数据即时点还原
+		2、实现MySQL主从复制 
+		
+
+	二进制日志事件event：
+
+		二进制日志中记录的每一个操作，称为事件
+		
+		记录产生时间(starttime)、在日志文件中的相对位置(position)	
+		
+		
+	启用二进制日志文件 
+
+	1) 准备独立的存储空间 
+
+	[root@db_server_01 ~]# rm -rf /mysql_log/*
+	[root@db_server_01 ~]# chown -R mysql.mysql /mysql_log/
+
+	2) 编辑配置文件  
+
+	[root@db_server_01 ~]# vim /etc/my.cnf
+
+		server_id=101
+		log_bin=/mysql_log/mysql-bin
+
+	3) 重启mysqld服务 
+
+
+
+
+		
+	查看二进制日志文件内容 
+
+	[root@node01 mysql]# mysqlbinlog /var/lib/mysql/mysql-bin.000001 
+
+	参数：
+
+		--start-datetime
+		--stop-datetime 
+		
+	[root@node01 mysql]# mysqlbinlog --start-datetime="2017-03-14 10:26:31" --stop-datetime="2017-03-14 10:26:44" /var/lib/mysql/mysql-bin.000001
+
+		
+		--start-position
+		--stop-position
+		
+	[root@node01 mysql]# mysqlbinlog --start-position=219 --stop-position=313 /var/lib/mysql/mysql-bin.000001
+		
+		
+	查看所有的二进制日志文件  
+
+	mysql> SHOW BINARY LOGS;
+	+------------------+-----------+
+	| Log_name         | File_size |
+	+------------------+-----------+
+	| mysql-bin.000001 |       748 |
+	+------------------+-----------+
+	1 row in set (0.00 sec)
+
+
+	查看正在使用的二进制日志文件 
+
+	mysql> SHOW MASTER STATUS;
+	+------------------+----------+--------------+------------------+-------------------+
+	| File             | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
+	+------------------+----------+--------------+------------------+-------------------+
+	| mysql-bin.000002 |      154 |              |                  |                   |
+	+------------------+----------+--------------+------------------+-------------------+
+	1 row in set (0.00 sec)
+
+
+	查看二进制日志文件中的事件
+
+	mysql> SHOW BINLOG EVENTS IN "mysql-bin.000002";
+	+------------------+-----+----------------+-----------+-------------+---------------------------------------+
+	| Log_name         | Pos | Event_type     | Server_id | End_log_pos | Info                                  |
+	+------------------+-----+----------------+-----------+-------------+---------------------------------------+
+	| mysql-bin.000002 |   4 | Format_desc    |       105 |         123 | Server ver: 5.7.17-log, Binlog ver: 4 |
+	| mysql-bin.000002 | 123 | Previous_gtids |       105 |         154 |                                       |
+	| mysql-bin.000002 | 154 | Anonymous_Gtid |       105 |         219 | SET @@SESSION.GTID_NEXT= 'ANONYMOUS'  |
+	| mysql-bin.000002 | 219 | Query          |       105 |         319 | CREATE DATABASE testdb                |
+	+------------------+-----+----------------+-----------+-------------+---------------------------------------+
+	4 rows in set (0.00 sec)
+
+	mysql> show binlog events in "mysql-bin.000003" from 219;
+
+
+	二进制日志文件滚动
+
+	1、手动执行flush logs 
+
+	mysql> flush logs;
+
+	2、服务重启
+
+	3、单个文件超过1G大小 
+
+
+
+
+
+
+
+MySQL数据库备份、恢复
+
+
+备份类型：
+
+1、根据服务是否在线
+	
+	热备份
+		服务在线，执行读、写的操作
+		
+	温备份
+		服务在线，执行读操作(锁表的方式)
+		
+	冷备份
+		服务不在线 
+	
+
+2、根据备份的数据量
+
+	完全备份
+	增量备份
+		备份自上一次增量或者完全备份以来，修改过的数据
+	差异备份
+		备份自上一次完全备份以来，修改过的数据 
+
+
+
+3、根据备份的方式 
+
+	物理备份
+		拷贝数据文件
+	逻辑备份
+	
+
+备份的文件：
+	数据目录数据文件、二进制日志、配置文件、事务日志
+
+
+
+备份工具：
+
+	物理备份
+		cp
+		tar
+		xtrabackup(Percona)
+		ibbackup  / NBU
+		
+	逻辑备份 
+		mysqldump 
+		SELECT
+
+
+
+
+mysqldump工具的使用：逻辑备份
+	mysqldump(完全备份) + 二进制日志文件 
+	实现完全 + 增量
+	
+常用选项：
+
+	db_name [tb1] [tb2]：备份指定数据库或表  
+	
+		备份库时不包含创建库的命令，恢复时，需要事先创建空白库
+			
+	--master-data={ 1 | 2 }
+		1：以CHANGE MASTER TO 的方式记录位置，可用于恢复后直接启动从服务器
+		2：以CHANGE MASTER TO 的方式记录位置，但默认被注释；
+		
+	# mysqldump -u root -p --master-data=2 studb > /backup/studb-`date +%F-%H-%M-%S`.sql
+		查看备份文件内容，可看到以CHANGE MASTER TO 方式记录的二进制文件名称及位置 
+		
+	--lock-all-tables
+		锁定所有表
+				
+	--flush-logs
+		执行二进制日志文件滚动
+	
+	如果指定库中的表类型均为InnoDB，可使用选项--single-transaction启动备份；不要与lock-all-tables一起使用
+	
+	备份多个库：
+		--all-databases：备份所有库
+			
+			# mysqldump -u root -p --master-data=2 --lock-all-tables --flush-logs --all-databases > /backup/all.sql
+		
+		--databases <db_name>：备份指定库
+			此两个选项备份时会备份创建库的命令，因此，恢复时不再需要创建空白库		
+		
+		
+		
+		
+示例1：使用mysqldump备份数据库，利用二进制日志实现即时点还原
+
+	备份策略：
+		mysqldump(完全备份)
+		每日备份二进制日志，实现增量备份		
+		
+		
+1、准备备份磁盘设备 /backup 
+
+[root@node01 ~]# df -h | grep backup
+/dev/vdb1                7.8G   36M  7.3G    1% /backup
+		
+2、进行完全备份
+
+[root@node01 ~]# mysqldump -u root -p --lock-all-tables --flush-logs --master-data=2 --all-databases > /backup/`date +%F-%T`.all-db.sql
+		
+3、模拟周二的操作
+
+mysql> DELETE FROM tutors WHERE Age > 60;
+
+		
+4、备份周二的二进制日志文件 实现增量备份 
+
+[root@node01 ~]# mysqlbinlog /var/lib/mysql/mysql-bin.000008 > /backup/`date +%F-%T`.increment.sql
+		
+		
+5、模拟周三的操作，插入数据 
+
+mysql> INSERT INTO tutors(Tname) VALUES("user1"),("user2"),("user3");
+		
+		
+6、备份周三的二进制日志文件，实现增量备份 
+
+[root@node01 ~]# mysqlbinlog --start-position=514 /var/lib/mysql/mysql-bin.000008 > /backup/`date +%F-%T`.incremnt2.sql
+		
+
+7、再次登录数据库做操作 
+
+mysql> insert into jiaowu.tutors(Tname, gender, age) values("User03", "F", 30);
+
+
+
+		
+实现数据恢复
+
+[root@node01 ~]# systemctl stop mysqld
+[root@node01 ~]# rm -rf /var/lib/mysql/*
+
+1) 启动服务，重新初始化数据 
+
+[root@node01 ~]# systemctl start mysqld
+		
+2) 设置root密码 
+
+[root@node01 ~]# mysqladmin -u root -p password "Www.1.com"
+Enter password: 
+		
+3) 恢复周一的数据 
+
+[root@node01 ~]# mysql -u root -p < /backup/2017-03-14-13\:52\:53.all-db.sql 
+	
+4) 恢复周二、三的数据  
+
+mysql> SOURCE /backup/2017-03-14-13:56:42.increment.sql;
+	
+mysql> SOURCE /backup/2017-03-14-14:01:08.incremnt2.sql;
+		
+		
+5) 在二进制日志文件中找到第2次增量备份后的操作，执行恢复 
+
+[root@db_server_01 mysql_log]# mysqlbinlog --start-position=795 mysql-bin.000006 | mysql -uroot -pWWW.1.com 
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+示例2：使用SELECT实现逻辑备份 
+
+	主要适用于备份单表的数据  
+	
+SELECT * INTO OUTFILE <file> FROM <tb_name>
+
+将jiaowu库中的students表备份到/backup/students.txt文件中 
+
+[root@node01 ~]# setfacl -m u:mysql:rwx /backup/
+	
+# vim /etc/my.cnf 
+
+	[mysqld]
+
+	secure-file-priv = ""
+
+# systemctl restart mysqld 
+
+mysql> SELECT * INTO OUTFILE "/backup/students.txt" FROM jiaowu.students;
+
+
+使用LOAD DATA恢复数据 
+
+LOAD DATA INFILE '<file>' INTO TABLE <tb_name>;
+
+mysql> CREATE TABLE new_students LIKE students;
+
+mysql> LOAD DATA INFILE "/backup/students.txt" INTO TABLE jiaowu.new_students;
+
+
+==============================================================================================
+
+
+物理备份 
+	cp, tar, xtrabackup
+
+
+
+1、使用xtrabackup工具实现物理备份
+
+1) 完全备份 
+
+# innobackupex --user=<用户名> --password=<密码> /path/to/backup  
+
+2) 从完全备份恢复数据
+
+# innobackupex --apply-log <完全备份目录> 		>>>准备完全备份 
+  
+# innobackupex --copy-back <完全备份目录>
+
+
+
+
+示例1：使用xtrabackup实现完全备份 
+
+[root@node01 ~]# yum install -y libev-4.15-7.el7.x86_64.rpm  percona-xtrabackup-24-2.4.6-2.el7.x86_64.rpm
+
+[root@node01 ~]# innobackupex --user=root --password=Www.1.com /backup/
+
+模拟恢复：
+
+[root@node01 ~]# systemctl stop mysqld
+[root@node01 ~]# rm -rf /var/lib/mysql/*
+
+[root@node01 ~]# innobackupex --apply-log /backup/2017-03-14_15-54-49/			>>>准备完全备份 
+
+[root@node01 ~]# innobackupex --copy-back /backup/2017-03-14_15-54-49/
+
+[root@node01 ~]# chown -R mysql.mysql /var/lib/mysql
+
+[root@node01 ~]# systemctl start mysqld
+
+最后登录数据库，验证数据是否恢复！！！
+
+
+
+使用xtrabackup实现增量备份 
+
+# innobackupex --user=<user> --password=<password> --incremental <备份目录> --incremental-basedir=<上一次备份目录>
+
+注意：
+	basedir
+	第1次增量备份，完全备份目录
+	第2次增量备份，指上一次增量备份目录
+
+	
+恢复增量备份
+
+# innobackupex --apply-log --redo-only <完全备份目录>
+
+接着执行：
+# innobackupex --apply-log --redo-only <完全备份目录> --incremental-dir=INCREMENTAL-DIR-1 
+
+而后是第二个增量备份：
+# innobackupex --apply-log --redo-only <完全备份目录> --incremental-dir=INCREMENTAL-DIR-2 
+
+恢复时，直接使用第1次的完全备份即可	
+
+
+
+
+示例2：使用xtrbackup实现完全备份+增量备份 
+
+1) 进行完全备份 
+
+[root@node01 ~]# innobackupex --user=root --password=Www.1.com /backup/
+
+
+2) 登录数据库，进行操作
+
+mysql> INSERT INTO tutors(Tname) VALUES("user4"),("user5");
+
+[root@node01 ~]# innobackupex --user=root --password=Www.1.com --incremental /backup/ --incremental-basedir=/backup/2017-03-14_16-08-31/
+
+
+3) 再次登录数据库，进行操作
+
+mysql> INSERT INTO tutors(Tname) VALUES("user6"),("user7");
+
+[root@node01 ~]# innobackupex --user=root --password=Www.1.com --incremental /backup/ --incremental-basedir=/backup/2017-03-14_16-11-47
+
+
+模拟恢复： 
+
+[root@node01 ~]# systemctl stop mysqld.service 
+[root@node01 ~]# rm -rf /var/lib/mysql/*
+
+1) 准备完全备份 
+
+[root@node01 ~]# innobackupex --apply-log --redo-only /backup/2017-03-14_16-08-31/
+
+
+2) 准备第1次增量备份
+
+[root@node01 ~]# innobackupex --apply-log --redo-only /backup/2017-03-14_16-08-31/ --incremental-dir=/backup/2017-03-14_16-11-47
+
+
+3) 准备第2次增量备份
+
+[root@node01 ~]# innobackupex --apply-log --redo-only /backup/2017-03-14_16-08-31/ --incremental-dir=/backup/2017-03-14_16-15-10
+
+
+4) 恢复完全备份
+
+[root@node01 ~]# innobackupex --copy-back /backup/2017-03-14_16-08-31/
+
+[root@node01 ~]# chown -R mysql.mysql /var/lib/mysql
+
+[root@node01 ~]# systemctl start mysqld
+
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+示例：借助LVM快照实现几乎热备份(完全+增量) 
+
+	前提条件：数据目录必须是逻辑卷
+
+
+1) 准备逻辑卷，挂载到/var/lib/mysql 
+
+2) 锁表，建立快照  (两个终端完成)
+
+mysql> FLUSH TABLE WITH READ LOCK;
+
+[root@node01 ~]# lvcreate -s -p r -L 500M -n lvsnap /dev/vg1/lv1
+
+
+3) 记录当前正在使用的二进制日志信息 
+
+[root@node01 ~]# mysql -uroot -pWww.1.com -e "SHOW MASTER STATUS\G" > /tmp/1.txt
+
+解锁：
+
+mysql> unlock table; 
+
+
+4) 挂载快照，实现完全备份 
+
+[root@node01 ~]# mount /dev/vg1/lvsnap /mnt/
+
+[root@node01 ~]# tar czf /backup/`date +%F-%T`-all.tar.gz /mnt/
+
+[root@node01 ~]# umount /mnt/
+[root@node01 ~]# lvremove -f /dev/vg1/lvsnap 
+  Logical volume "lvsnap" successfully removed
+
+
+5) 登录数据库，进行操作
+
+mysql> INSERT INTO jiaowu.tutors(Tname) VALUES("user8");
+
+[root@node01 ~]# mysqlbinlog --start-position=154 /var/lib/mysql/mysql-bin.000003 > /backup/`date +%F-%T`.incrment.sql
+
+

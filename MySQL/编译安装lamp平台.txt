@@ -1,0 +1,484 @@
+部署lamp平台 
+
+	lamp
+		Linux
+		Apache(httpd)
+		MySQL
+		PHP/Perl
+
+网站
+	静态页面   .html
+	动态页面
+		PHP 
+			lamp
+			LNMP/LEMP
+		JAVA(jsp)
+			Tomcat
+		Python(Djangko)
+
+
+部署方式：
+
+方式1) rpm软件
+	
+	# yum install httpd* php* mysql*
+	# service httpd start
+	# chkconfig --level 2345 on 
+	# service mysqld start 	
+	# chkconfig --level 2345 on 
+
+	# yum install -y httpd* php* mariadb*	
+	# systemctl start httpd
+	# systemctl enabled httpd 
+	# systemctl start mariadb
+	# systemctl enable mariadb 
+
+	
+方法2) 源码软件
+
+1、编译安装httpd
+
+1) 卸载系统自带的httpd 
+
+[root@node01 ~]# rpm -qa | grep httpd
+
+
+2) 安装apr及apr-util
+
+[root@node01 ~]# tar zxf apr-1.5.2.tar.gz 
+[root@node01 ~]# cd apr-1.5.2/
+[root@node01 apr-1.5.2]# ./configure --prefix=/usr/local/apr
+[root@node01 apr-1.5.2]# make && make install
+
+[root@node01 ~]# tar zxf apr-util-1.5.4.tar.gz 
+[root@node01 ~]# cd apr-util-1.5.4/
+[root@node01 apr-util-1.5.4]# ./configure \
+--prefix=/usr/local/apr-util \
+--with-apr=/usr/local/apr/
+[root@node01 apr-util-1.5.4]# make && make install
+
+
+3) 安装httpd-2.4.12
+
+[root@node01 ~]# tar zxf httpd-2.4.12.tar.gz 
+[root@node01 ~]# cd httpd-2.4.12/
+[root@node01 httpd-2.4.12]# ./configure \
+> --prefix=/usr/local/apache \
+> --enable-so \
+> --enable-rewrite \
+> --enable-ssl \
+> --enable-cgi \
+> --enable-cgid \
+> --enable-modules=most \
+> --enable-mods-shared=most \
+> --enable-mpm-shared=all \
+> --with-mpm=event \
+> --with-apr=/usr/local/apr \
+> --with-apr-util=/usr/local/apr-util/
+
+错误1：
+
+onfigure: error: pcre-config for libpcre not found. PCRE is required and available from http://pcre.org/
+
+解决办法1：
+
+[root@node01 httpd-2.4.12]# yum install -y pcre-devel
+
+
+错误2：
+
+checking whether to enable mod_ssl... configure: error: mod_ssl has been requested but can not be built due to prerequisite failures
+
+
+解决办法：
+
+[root@node01 httpd-2.4.12]# yum install -y openssl-devel
+
+[root@node01 httpd-2.4.12]# make && make install
+
+
+目录介绍：
+
+	/usr/local/apache
+	
+		/usr/local/apache/bin		命令
+		/usr/local/apache/conf		主配置文件 
+		/usr/local/apache/htdocs	网页目录
+		/usr/local/apache/logs		日志文件
+
+
+4) 启动httpd服务 
+
+[root@lamp_server httpd-2.4.25]# /opt/lamp/httpd/bin/httpd -k start
+
+
+[root@node01 ~]# netstat -antp | grep :80
+tcp6       0      0 :::80                   :::*                    LISTEN      2438/httpd    
+
+
+2、安装通用二进制格式的MySQL
+
+1) 卸载系统自带的mariadb
+
+[root@node01 ~]# rpm -qa | grep mariadb
+mariadb-libs-5.5.44-2.el7.centos.x86_64
+[root@node01 ~]# 
+[root@node01 ~]# rpm -e --nodeps mariadb-libs
+
+
+2) 准备数据目录 
+
+[root@node01 ~]# mkdir -p /mydata/data
+[root@node01 ~]# useradd mysql
+[root@node01 ~]# chown -R mysql.mysql /mydata/data/
+
+
+3) 解压缩 
+
+[root@lamp_server ~]# tar xf mysql-5.7.17-linux-glibc2.5-x86_64.tar.gz -C /opt/lamp/
+[root@lamp_server ~]# mv /opt/lamp/mysql-5.7.17-linux-glibc2.5-x86_64/ /opt/lamp/mysql
+[root@lamp_server ~]# chown -R root.mysql /opt/lamp/mysql/
+
+
+[root@lamp_server ~]# ln -s /opt/lamp/mysql/ /usr/local/
+
+
+
+
+4) 初始化数据库 
+
+[root@node01 mysql]# /usr/local/mysql/bin/mysqld --initialize --user=mysql --basedir=/usr/local/mysql --datadir=/mydata/data
+
+
+5) 复制MySQL配置文件 
+
+[root@node01 mysql]# cd /usr/local/mysql
+[root@node01 mysql]# cp support-files/my-default.cnf /etc/my.cnf
+
+[root@node01 mysql]# vim /etc/my.cnf
+
+	server_id=101
+	log_bin=master-bin
+	innodb_file_per_table=1
+	basedir=/opt/lamp/mysql
+	datadir=/mydata/data
+	port=3306
+	socket=/tmp/mysql.sock
+
+
+6) 启动mysqld服务，修改root密码 
+
+[root@lamp_server mysql]# cp support-files/mysql.server /etc/init.d/mysqld
+[root@lamp_server mysql]# chmod a+x /etc/init.d/mysqld
+[root@lamp_server mysql]# chkconfig --add mysqld
+[root@lamp_server mysql]# chkconfig --level 2345 mysqld on
+
+[root@lamp_server mysql]# /etc/init.d/mysqld start 
+Starting MySQL.Logging to '/mydata/data/lamp_server.err'.
+. SUCCESS! 
+
+
+
+
+7) 修改环境变量PATH
+
+[root@node01 ~]# vim /etc/profile.d/mysql.sh
+	export PATH=$PATH:/usr/local/mysql/bin
+[root@node01 ~]# source /etc/profile.d/mysql.sh
+
+[root@lamp_server ~]# mysqladmin -u root -p password "redhat"
+Enter password: 
+
+
+[root@node01 ~]# mysql -u root -p
+Enter password: 
+
+mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> FLUSH PRIVILEGES;
+
+
+8) 导出MySQL库文件 
+
+[root@node01 ~]# vim /etc/ld.so.conf.d/mysql.conf
+	/usr/local/mysql/lib
+	
+[root@node01 ~]# ldconfig 
+
+[root@lamp_server ~]# ldconfig -v | grep mysql
+
+
+
+
+9) 导出head文件 
+
+[root@node01 include]# ln -s /usr/local/mysql/include/ /usr/include/mysql
+
+
+
+3、安装PHP
+
+1) 安装mcrypt,mhash加密认证组件 
+
+[root@node01 ~]# rpm -ivh mcrypt-2.6.8-11.el7.x86_64.rpm libmcrypt-2.5.8-13.el7.x86_64.rpm libmcrypt-devel-2.5.8-13.el7.x86_64.rpm mhash-0.9.9.9-10.el7.x86_64.rpm mhash-devel-0.9.9.9-10.el7.x86_64.rpm
+
+
+2) 安装PHP 
+
+[root@node01 ~]# tar zxf php-5.6.27.tar.gz 
+[root@node01 ~]# cd php-5.6.27/
+[root@node01 php-5.6.27]# ./configure \
+> --prefix=/usr/local/php \
+> --with-mysql=/usr/local/mysql \
+> --with-mysqli=/usr/local/mysql/bin/mysql_config \
+> --with-openssl \
+> --enable-mbstring \
+> --with-freetype-dir \
+> --with-jpeg-dir \
+> --with-png-dir \
+> --with-zlib \
+> --with-libxml-dir=/usr \
+> --enable-xml \
+> --enable-sockets \
+> --with-apxs2=/usr/local/apache/bin/apxs \
+> --with-mcrypt \
+> --with-config-file-path=/etc \
+> --with-config-file-scan-dir=/etc/php.d \
+> --with-bz2 \
+> --enable-maintainer-zts
+
+
+	--enable-sockets	部署监控服务器(nagios, zabbix)
+	> --with-apxs2=/usr/local/apache/bin/apxs \
+			调用apache的apxs命令将php编译为httpd的模块 
+
+
+错误1： 
+
+configure: error: xml2-config not found. Please check your libxml2 installation.
+
+
+解决办法： 
+
+[root@node01 php-5.6.27]# yum install -y libxml2-devel
+
+
+错误2： 
+
+configure: error: Please reinstall the BZip2 distribution
+
+解决办法： 
+
+[root@node01 php-5.6.27]# yum install -y bzip2-devel
+
+
+错误3：
+
+configure: error: Cannot find libmysqlclient_r under/usr/local/mysql. Note that the MySQL client library is not bundledanymore!
+
+解决办法：
+
+[root@node01 php-5.6.27]# cd /usr/local/mysql/lib 
+[root@node01 php-5.6.27]# ln -s libmysqlclient.so.20.3.4 libmysqlclient_r.so
+
+[root@node01 php-5.6.27]# make && make install 
+
+
+3) 复制PHP配置文件  
+
+[root@node01 php-5.6.27]# cp php.ini-production /etc/php.ini 
+
+
+
+4、编辑httpd配置文件，整合httpd和PHP 
+
+[root@node01 ~]# vim /usr/local/apache/conf/httpd.conf
+
+    AddType application/x-httpd-php .php
+    AddType application/x-httpd-php-source .phps
+
+    DirectoryIndex index.php index.html
+
+检测配置文件语法，重启httpd服务 
+
+[root@lamp_server ~]# /opt/lamp/httpd/bin/httpd -t
+
+[root@lamp_server ~]# /opt/lamp/httpd/bin/httpd -k restart
+
+
+
+
+测试lamp平台工作是否正常 
+
+1、测试HTTPD/PHP 
+
+1) 测试httpd, php是否正常工作　
+
+[root@lamp ~]# cat /usr/local/apache/htdocs/a.php
+<?php
+phpinfo()
+?>
+
+http://192.168.122.101/a.php　
+
+
+2) 测试PHP、MySQL 
+
+[root@lamp ~]# cat /usr/local/apache/htdocs/b.php 
+<?php
+  $link=mysql_connect("localhost","root","redhat");
+  if($link)
+    echo "Success!!!!!";
+  else
+    echo "Failure!!!!";
+  mysql_close()
+?>
+
+http://192.168.122.101/b.php
+
+
+
+
+
+部署应用 
+
+1、搭建虚拟主机pma.linux.com部署phpMyAdmin图形化工具 
+
+[root@lamp_server ~]# mkdir /pma
+
+[root@lamp_server extra]# vim /usr/local/apache/conf/extra/httpd-vhosts.conf 
+
+	<VirtualHost *:80>
+		ServerName pma.linux.com
+		DocumentRoot /pma
+		ErrorLog /var/log/httpd/pma.error_log
+		CustomLog /var/log/httpd/pma.access_log combined
+	</VirtualHost>
+
+	<Directory "/pma">
+	   Require all granted
+	</Directory>
+
+[root@lamp_server extra]# vim /usr/local/apache/conf/httpd.conf
+
+		# Virtual hosts
+	Include conf/extra/httpd-vhosts.conf
+
+	
+
+[root@lamp_server ~]# unzip phpMyAdmin-4.8.3-all-languages.zip 
+
+[root@lamp_server ~]# mv phpMyAdmin-4.8.3-all-languages/* /pma/
+
+[root@lamp_server ~]# httpd -t
+
+[root@lamp_server ~]# /usr/local/apache/bin/apachectl restart
+
+
+客户端测试访问：
+
+http://pma.linux.com/
+
+
+
+
+2、部署Discuz论坛
+
+
+[root@lamp_server extra]# mkdir /discuz
+
+[root@lamp_server extra]# vim /usr/local/apache/conf/extra/httpd-vhosts.conf 
+
+ 34 <VirtualHost *:80>
+ 35     ServerName discuz.linux.com
+ 36     DocumentRoot /discuz
+ 37     ErrorLog /var/log/httpd/discuz.error_log
+ 38     CustomLog /var/log/httpd/discuz.access_log combined
+ 39 </VirtualHost>
+ 40 
+ 41 <Directory "/discuz">
+ 42    Require all granted
+ 43 </Directory>
+
+[root@lamp_server ~]# unzip Discuz_7.2_FULL_SC_UTF8.zip 
+
+[root@lamp_server ~]# mv upload/* /discuz/
+
+[root@lamp_server ~]# /usr/local/apache/bin/apachectl restart
+
+
+客户端访问如下URL地址进行安装discuz
+
+http://discuz.linux.com/install
+
+删除安装文件
+
+[root@lamp_server ~]# rm -rf /discuz/install/
+
+
+客户端通过如下url地址访问论坛：
+
+http://discuz.linux.com/
+
+
+使用admin用户登录论坛管理界面 
+
+
+
+
+
+
+
+添加php扩展模块 
+
+
+1、添加xcache的扩展模块 
+
+	xcache：
+		php加速器 
+		加速php解析执行PHP代码 
+		
+
+1) 安装xcache
+
+[root@lamp_server ~]# tar xf xcache-3.2.0.tar.gz 
+[root@lamp_server ~]# cd xcache-3.2.0/
+[root@lamp_server xcache-3.2.0]# /usr/local/php/bin/phpize 		>>>生成configure配置工具 
+[root@lamp_server xcache-3.2.0]# ./configure --enable-xcache --with-php-config=/usr/local/php/bin/php-config 
+[root@lamp_server xcache-3.2.0]# make && make install 
+
+
+Installing shared extensions:     /usr/local/php/lib/php/extensions/no-debug-zts-20131226/
+
+
+2) 在php上启用xcache.so模块，验证
+
+[root@lamp_server xcache-3.2.0]# vim /etc/php.ini 
+
+	extension=/usr/local/php/lib/php/extensions/no-debug-zts-20131226/xcache.so
+
+[root@lamp_server ~]# /usr/local/apache/bin/apachectl restart
+
+查看php加载的模块 
+
+[root@lamp_server ~]# /usr/local/php/bin/php -m | grep -i xcache
+XCache
+XCache Cacher
+XCache
+XCache Cacher
+
+
+
+
+
+2、添加redis扩展模块
+
+
+
+
+
+
+
+
+

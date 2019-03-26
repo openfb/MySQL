@@ -1,0 +1,171 @@
+源码编译安装MySQL 5.7.17
+
+	规划：
+		/mydata/data 数据目录 		(逻辑卷)
+		/mysql_log	二进制日志目录  (逻辑卷)
+	
+	
+1、准备逻辑卷
+
+[root@node02 ~]# df -hT | grep "data"
+/dev/mapper/vg1-lv1     xfs       4.0G   33M  4.0G    1% /mydata/data
+
+2、卸载系统自带的mariadb软件
+
+[root@mysqltest ~]# rpm -qa | grep mariadb
+mariadb-libs-5.5.44-2.el7.centos.x86_64
+[root@mysqltest ~]# rpm -e --nodeps mariadb-libs
+
+3、修改数据目录、日志目录的所属
+
+[root@db_server_01 ~]# useradd -s /sbin/nologin -M mysql
+[root@db_server_01 ~]# chown -R mysql.mysql /mydata/data/
+[root@db_server_01 ~]# chown -R mysql.mysql /mysql_log/
+
+
+4、安装cmake编译器 
+
+[root@node02 ~]# yum install -y cmake
+
+[root@node02 ~]# tar zxf mysql-boost-5.7.17.tar.gz 
+[root@node02 ~]# cd mysql-5.7.17/
+[root@mysql57 mysql-5.7.17]# cmake . \
+-DCMAKE_INSTALL_PREFIX=/usr/local/mysql \
+-DMYSQL_UNIX_ADDR=/tmp/mysql.sock \
+-DDEFAULT_CHARSET=utf8 \
+-DDEFAULT_COLLATION=utf8_general_ci \
+-DMYSQL_DATADIR=/mydata/data \
+-DMYSQL_TCP_PORT=3306 \
+-DWITH_BOOST=boost/boost_1_59_0/ \
+-DWITH_MYISAM_STORAGE_ENGINE=1 \
+-DWITH_INNOBASE_STORAGE_ENGINE=1 \
+-DWITH_ARCHIVE_STORAGE_ENGINE=1 \
+-DWITH_BLACKHOLE_STORAGE_ENGINE=1 \
+
+错误1：
+
+CMake Error: your C compiler: "CMAKE_C_COMPILER-NOTFOUND" was not found.   Please set CMAKE_C_COMPILER to a valid compiler path or name.
+CMake Error: your CXX compiler: "CMAKE_CXX_COMPILER-NOTFOUND" was not found.   Please set CMAKE_CXX_COMPILER to a valid compiler path or name.
+CMake Error at cmake/os/Linux.cmake:41 (MESSAGE):
+  Unsupported compiler!
+Call Stack (most recent call first):
+  CMakeLists.txt:162 (INCLUDE)
+
+解决办法：
+
+# yum groupinstall -y "Development Tools" "Server Platform Development" "Desktop Platform Development"
+
+错误2：
+
+CMake Error at cmake/readline.cmake:64 (MESSAGE):
+  Curses library not found.  Please install appropriate package,
+
+解决办法： 
+
+[root@node02 ~]# yum install -y ncurses-devel.x86_64 
+
+[root@mysqltest mysql-5.7.17]# make
+[root@mysqltest mysql-5.7.17]# make install
+
+
+[root@mysqltest ~]# chown -R root.mysql /usr/local/mysql/
+
+
+
+初始化数据库
+
+[root@mysql57 ~]# /usr/local/mysql/bin/mysqld --initialize --user=mysql --basedir=/usr/local/mysql --datadir=/mydata/data
+
+
+复制MySQL配置文件 
+
+[root@node02 ~]# cd /usr/local/mysql/support-files/
+[root@node02 support-files]# cp my-default.cnf /etc/my.cnf
+[root@node02 support-files]# vim /etc/my.cnf
+	[mysqld]
+	...
+	basedir=/usr/local/mysql
+	datadir=/mydata/data
+	port=3306
+	server_id=121
+	socket=/tmp/mysql.sock
+
+启动mysql服务 
+
+[root@mysqltest data]# /usr/local/mysql/bin/mysqld_safe --user=mysql &
+[root@mysqltest data]# ss -antp | grep mysqld
+LISTEN     0      80          :::3306                    :::*                   users:(("mysqld",pid=63756,fd=20))
+[root@mysqltest data]# 
+
+修改环境变量PATH
+
+[root@mysqltest data]# cat /etc/profile.d/mysql.sh 
+	export PATH=$PATH:/usr/local/mysql/bin
+	
+[root@mysqltest data]# source /etc/profile.d/mysql.sh
+
+
+[root@mysqltest data]# mysql -u root -p
+
+mysql> ALTER USER 'root'@'localhost' IDENTIFIED BY 'Www.1.com';
+
+mysql> FLUSH PRIVILEGES;
+Query OK, 0 rows affected (0.00 sec)
+
+
+
+
+
+设置源码mysql服务开机自启动 
+
+# vim /etc/rc.d/rc.local 
+
+/usr/local/mysql/bin/mysqld_safe --user=mysql &
+
+[root@node02 bin]# chmod a+x /etc/rc.d/rc.local
+
+
+
+复制mysql服务控制脚本  
+
+[root@db_server_01 ~]# cp /usr/local/mysql/support-files/mysql.server /etc/init.d/mysqld
+[root@db_server_01 ~]# chmod a+x /etc/init.d/mysqld
+
+[root@db_server_01 ~]# chkconfig --add mysqld					>>>将mysqld服务添加为系统服务 
+[root@db_server_01 ~]# chkconfig --level 2345 mysqld on			>>>设置mysqld服务开机自启动 
+
+	2345：
+		linux启动模式   
+			3：字符模式
+			5：图形模式
+			2：字符，无网络
+			4：预留
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,53 @@
+作业：
+
+1、创建数据库school，字符集为UTF8
+
+2、在school库中创建如下表：
+
+表1:  student
+
+	id  整型 主键  自动增长 
+	name  字符型, 长度为20, 不允许为空
+	age  无符号整型， 不允许为空 
+	major  字符型，长度为50
+	course_id  整型 
+	
+	
+表2： course
+
+	id  整型 主键  自动增长 
+	course_name  字符型，长度为50 
+	
+	
+表3： teacher
+
+	id  整型 主键  自动增长 
+	name 字符型， 长度为50  
+
+
+
+3、修改如上表结构
+
+1) 将student表名修改为stu_info
+2) 修改student表中的major字段，为其指定默认值为"Linux"
+3) 修改course表中的course_name字段不允许为空
+4) 在course表中添加字段course_start_time，字段类型为日期型 
+5) 在course表中添加字段teacher_id, 字段类型为整型 
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,607 @@
+MySQL主从复制、读写分离 
+
+
+主从复制	MySQL Replication   
+
+
+实现过程：
+
+	Master服务器上进行写操作时，会把写操作记录到本地的二进制日志文件中，本地会启动sql线程，该线程会通过网络把事件传递给slave从服务器
+	Slave服务器会启动I/O thread，负责接收二进制日志事件，并写入本地的relay log中继日志
+	Slave服务器启动SQL thread，负责读取中继日志中的事件，在从服务器本地执行，从而保证主、从服务器数据同步
+
+	
+
+作用：
+	高可用
+	实现冷备份
+	读写分离
+
+
+实现读写分离的方式：
+	1、开发人员
+	2、数据库中间件软件 
+		mysql-proxy	
+		amoeba, Cobar 
+		Atlas	360		
+		MyCAT
+
+
+
+		
+		
+		
+		
+		
+示例1：搭建主从复制架构
+
+	master.linux.com	192.168.122.101    主服务器
+	slave.linux.com	    192.168.122.102    从服务器 
+	
+1) SELinux, firewalld, 时间同步, yum源仓库
+
+2) 在两台服务器安装数据库
+
+[root@master ~]# yum install -y mariadb-server 
+
+
+3) 在master服务器上启用二进制日志
+
+[root@master ~]# vim /etc/my.cnf 
+
+	[mysqld]
+	server_id=101
+	log_bin=master-bin
+
+[root@master ~]# systemctl start mariadb
+[root@master ~]# systemctl enable mariadb
+
+[root@master ~]# netstat -antp | grep mysql
+tcp        0      0 0.0.0.0:3306            0.0.0.0:*               LISTEN      1488/mysqld         
+[root@master ~]# 
+
+
+4) 导入jiaowu数据库，模拟数据量 
+
+[root@master ~]# mysql -u root -p < jiaowu.sql 
+Enter password:
+
+
+
+5) 在slave服务器配置server_id， 启动服务 
+
+[root@slave ~]# vim /etc/my.cnf 
+
+	[mysqld]
+	server_id=102
+	read_only=1
+
+[root@slave ~]# systemctl start mariadb
+[root@slave ~]# systemctl enable mariadb
+
+[root@slave ~]# netstat -antp | grep mysqld
+tcp        0      0 0.0.0.0:3306            0.0.0.0:*               LISTEN      1443/mysqld    
+
+
+
+6) 在master上备份数据，在slave上恢复数据 
+
+[root@master ~]# mysqldump -u root -p --lock-all-tables --master-data=2 --all-databases > /tmp/all.sql
+
+[root@master ~]# rsync -av /tmp/all.sql 192.168.122.102:/tmp/
+root@192.168.122.102's password: 
+
+[root@slave ~]# mysql -u root -p < /tmp/all.sql 
+
+
+7) 在master服务器上创建一个具有复制权限的远程用户
+
+MariaDB [(none)]> grant replication slave on *.* to 'repluser'@'192.168.122.102' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> flush privileges;
+Query OK, 0 rows affected (0.00 sec)
+
+
+8) 在slave上连接主服务器
+
+MariaDB [(none)]> change master to
+    -> master_host="192.168.122.101",
+    -> master_user="repluser",
+    -> master_password="redhat",
+    -> master_log_file="master-bin.000003",
+    -> master_log_pos=5015;
+
+
+9) 启动复制线程   
+
+MariaDB [(none)]> start slave;
+
+
+10) 查看从服务器上线程的状态 
+
+MariaDB [(none)]> show slave status\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.122.101
+                  Master_User: repluser
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: master-bin.000003
+          Read_Master_Log_Pos: 5250
+               Relay_Log_File: mariadb-relay-bin.000002
+                Relay_Log_Pos: 765
+        Relay_Master_Log_File: master-bin.000003
+             Slave_IO_Running: Yes			>>>
+            Slave_SQL_Running: Yes			>>>
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 5250
+              Relay_Log_Space: 1061
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 101
+
+			 
+			 
+			 
+	
+			 
+
+验证主从复制成功 
+
+停止从服务器，在主服务上进行修改操作，再次启动从服务器，从服务器会自动继续复制数据 
+
+因为从服务器启动后，默认会在其数据目录下，生成一个master.info，该文件中会自动记录主服务器的连接信息 
+
+
+
+			 
+			 
+		 
+		 
+		 
+		 
+		 
+		 
+		 	
+示例03：通过MyCAT实现读写分离
+
+	mycat.linux.com 	192.168.122.103 	
+	
+1、 firewalld, selinux, 时间同步，添加主机名解析 
+
+[root@mycat ~]# cat /etc/hosts
+
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192.168.122.103	mycat.linux.com 
+
+[root@mycat ~]# ntpdate 172.16.8.100
+
+
+
+2、 安装jdk 
+
+[root@mycat ~]# rpm -qa | grep jdk
+
+[root@mycat ~]# mkdir /app
+[root@mycat ~]# tar xf jdk-8u91-linux-x64.tar.gz -C /app/
+
+配置环境变量：
+
+[root@mycat ~]# vim /etc/profile
+
+	export JAVA_HOME=/app/jdk1.8.0_91
+	export PATH=$PATH:$JAVA_HOME/bin
+
+[root@mycat ~]# source /etc/profile
+
+[root@mycat ~]# java -version 
+java version "1.8.0_91"
+Java(TM) SE Runtime Environment (build 1.8.0_91-b14)
+Java HotSpot(TM) 64-Bit Server VM (build 25.91-b14, mixed mode)
+
+
+
+3、安装Mycat
+
+[root@mycat ~]# tar xf Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz -C /app/
+
+[root@mycat ~]# useradd mycat
+[root@mycat ~]# chown -R mycat.mycat /app/mycat/ 
+
+
+[root@mycat ~]# vim /etc/profile
+
+	export MYCAT_HOME=/app/mycat
+	
+[root@mycat ~]# source /etc/profile
+	
+[root@mycat conf]# cp schema.xml schema.xml.bak
+[root@mycat conf]# cp server.xml server.xml.bak
+
+	
+4、编辑schema.xml定义后台数据库信息
+
+<?xml version="1.0"?>
+<!DOCTYPE mycat:schema SYSTEM "schema.dtd">
+<mycat:schema xmlns:mycat="http://io.mycat/">
+
+	<schema name="jiaowu" checkSQLschema="false" sqlMaxLimit="100" dataNode="dn1">
+	</schema>			>>>>>  定义虚拟数据库
+
+	<dataNode name="dn1" dataHost="dh1" database="jiaowu" />		>>>定义数据节点，关联后台真实的数据库
+
+	<dataHost name="dh1" maxCon="1000" minCon="10" balance="1"       *****修改***** 
+			  writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+			  
+		<heartbeat>select user()</heartbeat>		>>>检测后台数据库的健康状态 
+
+		<writeHost host="hostM1" url="192.168.122.101:3306" user="admin"
+				   password="redhat">
+		</writeHost>		>>>定义写主机 
+
+		<writeHost host="hostS1" url="192.168.122.102:3306" user="admin"
+				   password="redhat" />		>>>定义读主机
+	</dataHost>
+</mycat:schema>
+	
+	
+在后台数据库创建mycat连接的用户
+
+MariaDB [(none)]> grant all on jiaowu.* to 'admin'@'192.168.122.103' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> flush privileges;
+
+
+	
+5、编辑server.xml，定义连接mycat的用户
+
+80         <user name="mycatuser">
+81                 <property name="password">123</property>
+82                 <property name="schemas">jiaowu</property>
+83         </user> 
+
+	
+6、启动mycat服务 
+
+[root@mycat bin]# /app/mycat/bin/mycat start
+Starting Mycat-server...
+
+[root@mycat bin]# netstat -antp | grep java
+       
+tcp6       0      0 :::9066                 :::*                    LISTEN      3982/java                     
+tcp6       0      0 :::8066                 :::*                    LISTEN      3982/java        
+
+
+
+	8066：前端应用程序连接 
+
+	
+	9066: MyCAT的管理端口 
+
+
+
+验证读写分离
+
+	[root@master ~]# mysql -u mycatuser -p -h 192.168.122.103 -P 8066
+
+
+	
+MyCAT的管理指令  
+
+	https://www.cnblogs.com/parryyang/p/5606071.html
+		
+	show @@backend;   查看后台数据库服务器
+
+	show @@connection;   查看客户端的连接信息
+
+	show @@heartbeat; 	 查看后台服务器的健康状态检测的状态   RS_CODE：1代表正常， RS_CODE：-1 宕机 
+	
+	
+	
+	
+	
+	
+示例03：实现双主复制 
+
+1、在从服务器上启用二进制日志
+
+[root@slave ~]# vim /etc/my.cnf
+
+	[mysqld]
+	server_id=102
+	log_bin=slave-bin
+
+[root@slave ~]# systemctl restart mariadb
+
+
+2、 在主服务器上创建复制用户
+
+MariaDB [(none)]> grant replication slave on *.* to 'repluser'@'192.168.122.101' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> flush privileges;
+
+	
+3、在主服务器上连接从服务器，启动复制线程 
+
+MariaDB [(none)]> change master to
+    -> master_host="192.168.122.102",
+    -> master_user="repluser",
+    -> master_password="redhat",
+    -> master_log_file="slave-bin.000001",
+    -> master_log_pos=245;
+
+MariaDB [(none)]> start slave;
+
+MariaDB [(none)]> show slave status\G;
+	
+	
+4、测试双主复制 
+
+	
+
+
+
+
+
+
+
+
+			
+
+
+MySQL 5.6基于GTID的复制 
+
+	GTID --- Global Transaction ID   全局事务ID 
+	
+		server_id + xxxxxxx 
+		
+		
+
+示例：基于GTID的主从复制 
+
+
+1、selinux, firewalld, 主机名/ip， 时间同步 
+
+
+2、两台服务器安装mysql 5.7 
+
+[root@master01 ~]# yum install -y mysql-community-server 
+
+
+3、编辑主服务器的配置文件 
+
+[root@master01 ~]# vim /etc/my.cnf  
+
+	[mysqld]
+
+	server_id=101
+	log_bin=master01-bin
+	gtid_mode=on					>>> 启用gtid
+	enforce_gtid_consistency=true	>>>强制gtid的一致性，确保事务的安全执行 
+	
+[root@master01 ~]# systemctl start mysqld
+[root@master01 ~]# systemctl enable mysqld
+[root@master01 ~]# netstat -antp | grep mysqld
+tcp6       0      0 :::3306                 :::*                    LISTEN      1385/mysqld  
+
+[root@master01 ~]# grep "password" /var/log/mysqld.log 
+2018-08-22T01:58:17.833583Z 1 [Note] A temporary password is generated for root@localhost: ULrjow9u:pBC
+
+[root@master01 ~]# mysqladmin -u root -p password "WWW.1.com"
+
+
+
+4、创建远程复制用户
+
+mysql> grant replication slave on *.* to 'repluser'@'192.168.122.102' identified by 'WWW.1.com';
+Query OK, 0 rows affected, 1 warning (0.03 sec)
+
+mysql> flush privileges;
+
+
+5、 备份主服务器上数据，在从服务器上恢复
+
+[root@master01 ~]# mysqldump -uroot -pWWW.1.com --lock-all-tables --master-data=2 --all-databases > /tmp/all.sql
+
+[root@master01 ~]# rsync -av /tmp/all.sql 192.168.122.102:/tmp/
+
+
+
+
+
+6、在从服务器上启用GTID 
+
+[root@slave ~]# vim /etc/my.cnf
+
+	[mysqld]
+	server_id=102
+	gtid_mode=on
+	enforce_gtid_consistency=true
+	read_only=1
+
+	
+	
+[root@slave ~]# systemctl start mysqld
+[root@slave ~]# systemctl enable mysqld
+
+[root@slave mysql]# msyql -uroot -pWWW.1.com < /tmp/all.sql  
+
+
+
+
+7、连接主服务器 
+
+mysql> change master to
+    -> master_host="192.168.122.101",
+    -> master_user="repluser",
+    -> master_password="WWW.1.com",
+    -> master_auto_position=1;			>>>根据GTID复制数据 
+	
+mysql> start slave;
+
+
+
+8、验证线程状态、数据同步 
+
+
+
+
+
+
+
+
+
+
+
+
+
+MySQL 5.7支持多源复制
+
+	作用：	
+		1、方便数据统一备份、分析 
+
+	以不同的channel区分到不同主服务器间的连接，在不同的channel会启动不同的IO及SQL线程完成复制 
+
+	要求master.info, relay-log.info存在表中
+
+
+示例：多源复制 
+
+	master01.linux.com 		192.168.122.101
+	master02.linux.com		192.168.122.102
+	slave.linux.com			192.168.122.103
+	
+
+1、三台服务器分别安装好mysql
+
+2、分别编辑master01/master02的配置文件
+
+[root@master01 ~]# vim /etc/my.cnf
+
+	[mysqld]
+	server_id=101
+	log_bin=master01-bin
+  
+[root@master01 ~]# systemctl restart mysqld
+
+
+3、分别在master01/master02创建复制用户 
+
+mysql> grant replication slave on *.* to 'repluser'@'192.168.122.103' identified by 'WWW.1.com';
+
+mysql> flush privileges;
+	
+
+mysql> grant replication slave on *.* to 'repluser'@'192.168.122.103' identified by 'WWW.1.com';
+
+mysql> flush privileges;
+	
+	
+4、配置slave服务器的配置文件  
+
+[root@slave ~]# vim /etc/my.cnf
+
+	[mysqld]
+	server_id=103
+	master_info_repository=TABLE
+	relay_log_info_repository=TABLE
+
+[root@slave ~]# systemctl start mysqld
+[root@slave ~]# systemctl enable mysqld
+	
+	
+5、配置slave服务器分别连接两台master服务器 
+
+mysql> change master to
+    -> master_host="192.168.122.101",
+    -> master_user="repluser",
+    -> master_password="WWW.1.com",
+    -> master_log_file="master01-bin.000003",
+    -> master_log_pos=647 for channel "master01";
+
+	
+mysql> change master to
+    -> master_host="192.168.122.102",
+    -> master_user="repluser",
+    -> master_password="WWW.1.com",
+    -> master_log_file="master02-bin.000001",
+    -> master_log_pos=607 for channel "master02";
+
+mysql> start slave;
+
+	
+	
+6、验证线程状态
+
+mysql> show slave status\G;
+
+
+
+
+
+
+
+
+
+主从复制故障转移  
+
+
+	1、根据show slave status的结果，选出数据量相对完整的从服务器
+	2、关闭该从服务器的复制线程	stop slave 
+	3、删除master.info, relay-log.info数据信息  
+	4、编辑配置文件，启用二进制日志、删除只读选项
+	5、使用reset master命令，将其提升为主服务器
+	6、将原有的从服务器的复制连接改到新主服务器 
+	
+	
+
+
+
+主从复制数据复制的方式 
+
+	异步	默认工作模式 
+	
+		速度快， 可能会导致部分数据丢失 
+	
+	半同步	5.5版本后		（作业？？？）
+	
+		一主多从架构中
+		google研发插件semi实现半同步 
+		
+		只要有一个从服务器响应数据复制已经完成，主服务器会响应客户端，本次写操作完成 
+		
+	
+	同步
+	
+		可靠性高，速度较慢
+		
+
+	
+

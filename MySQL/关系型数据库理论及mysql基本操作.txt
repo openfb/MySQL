@@ -1,0 +1,376 @@
+数据库    Database
+
+出于数据量、规范性的问题：
+	RDBMS ---->  Relation Database Management System  关系型数据库管理系统
+
+数据存储结构：
+	
+	数据库 
+		表
+			字段	column
+			记录	record
+	
+	
+约束 Constraint 
+
+	1、域约束 --- 数据类型约束
+		
+		保证字段的数据类型必须一致 
+	
+	
+	2、主键约束  primary key 
+	
+		不能为空、不能重复
+		一张表只能有一个主键 
+		
+	3、惟一键约束    unique key 	
+	
+		不能重复、可以为空
+		
+	4、外键约束  	foreign key 
+
+		确保数据的引用完整性 
+		
+	5、检查性约束     
+	
+		确保数据的合法性 
+	
+	
+	
+事务 transcation 
+
+	保证多个操作要么同时成功、失败
+	
+
+
+关系型数据库管理软件
+
+	MySQL   开源 
+		
+		--- mariadb
+	
+	Oracle	商业的软件 
+	
+	SQL Server 
+	
+	postgreSQL, DB2 
+
+
+
+MySQL安装 	https://www.mysql.com/
+
+安装类型：
+	1、rpm 
+	2、源码编译
+	3、通用二进制格式
+
+
+安装MySQL 5.7
+
+
+1、安装 
+
+	[root@mysql_server ~]# yum install -y mysql-community-server.x86_64 
+
+	[root@mysql_server ~]# systemctl start mysqld
+	[root@mysql_server ~]# systemctl enable mysqld
+
+	[root@mysql_server ~]# netstat -antp | grep mysql
+	tcp6       0      0 :::3306                 :::*                    LISTEN      1217/mysqld         
+
+	[root@mysql_server ~]# ps -elf | grep mysql
+	1 S mysql     1217     1  1  80   0 - 279805 poll_s 11:26 ?       00:00:00 /usr/sbin/mysqld --daemonize --pid-file=/var/run/mysqld/mysqld.pid
+
+
+相关文件：
+
+	1) 配置文件 
+
+		/etc/my.cnf  
+		
+	2) 默认的数据目录 
+
+		/var/lib/mysql 
+		
+	3) 错误日志
+
+		/var/log/mysqld.log 
+	
+	
+2、修改root默认密码 
+
+	[root@mysql_server ~]# grep -i "password" /var/log/mysqld.log 
+	2019-01-08T03:25:33.615079Z 1 [Note] A temporary password is generated for root@localhost: -YA??;iCy3<F
+
+	[root@mysql_server ~]# mysqladmin -u root -p password "WWW.1.com"
+
+
+3、登录MySQL数据库 
+
+	[root@mysql_server ~]# mysql -u root -p
+	Enter password: 
+
+	[root@mysql_server ~]# mysql -uroot -pWWW.1.com
+
+
+
+
+
+
+MySQL基本操作
+
+一、数据库操作 
+
+
+1、查看数据库
+
+	mysql> show databases;
+
+		information_schema ： 存储所有数据库的元数据信息
+		mysql： 存储用户、权限信息
+		performance_schema： 存储数据库服务器性能指标的数据 
+		sys：存储数据库变量的信息
+
+
+2、创建数据库 
+
+	mysql> create database game;
+
+		1) 查看数据库的创建信息
+		
+			mysql> show create database game;
+
+	mysql> create database testdb charset utf8;
+
+
+3、删除数据库 
+
+	mysql> drop database game;
+
+
+4、切换数据库 
+
+	mysql> use testdb;
+
+
+
+二、数据表操作 
+
+1、查看表 
+
+	mysql> show tables;
+
+
+2、创建表 
+
+	create table 表名(字段名称 数据类型 [参数], 字段名称 数据类型 [参数], ..... );
+	
+	数据类型：
+	
+		数字
+			int   	整型
+				tinyint, smallint, mediumint, bigint 
+				tinyint unsigned  无符号整型 
+				
+			float  	单精度浮点数	float(10,3)	
+			double	双精度浮点数 	double(10,3)
+			decimal	精确数字, 财务 	decimal(10,3)
+			
+		字符
+			char(10)		定长字符
+			varchar(10)		变长字符
+			
+			enum("男", "女")	枚举
+			
+			text 
+				tinytext, mediumtext, longtext 
+		
+		
+		日期时间
+			date 	日期   YYYY-MM-DD 
+			time    时间   HH:MM:SS 
+			datetime 	日期时间 
+			
+
+	参数：
+	
+		primary key 	设置主键 
+		not null 		不允许为空 
+		auto_increment	自动增长 (主键、不允许为空)
+		default "值"	设置默认值， NULL 
+			
+		
+
+	mysql> create table account(
+		-> id INT UNSIGNED PRIMARY KEY NOT NULL AUTO_INCREMENT,
+		-> username CHAR(20) not null, 
+		-> password CHAR(25) not null,
+		-> level TINYINT UNSIGNED default 1);
+		
+	
+	mysql> create table tb01(id INT) engine=MyISAM; 
+
+	
+	mysql> create table new_account like account;
+
+	
+
+3、删除表 
+
+	mysql> drop table tb02;
+
+
+4、查看表结构
+
+	mysql> desc account;
+
+
+5、查看创建表信息
+
+mysql> show create table account\G;
+
+
+
+	存储引擎 storage engine
+	
+		MyISAM	
+			
+			查询性能效率高 
+			
+		InnoDB
+			
+			支持事务，行级锁，外键 
+			
+		其他存储引擎：
+			MRG_MYISAM: 支持MyISAM表合并 
+			BLACKHOLE: 黑洞, 在MySQL主从复制环境应用
+			MEMORY： 内存， 用于临时表 (视图)
+			
+		查看存储引擎：
+			mysql> show engines;
+
+	
+		InnoDB存储引擎：
+			*.frm	表结构信息
+			*.ibd 	表数据、索引
+			
+		MyISAM存储引擎：
+			*.frm	表结构信息  
+			*.MYD	表数据 
+			*.MYI	表索引 
+
+
+
+三、修改表结构 
+
+1、修改表名 
+
+	mysql> alter table account rename game_account;
+
+	
+2、添加字段 
+
+	mysql> alter table game_account add register_time datetime not null;
+
+	mysql> alter table game_account add area char(20) first;
+
+	mysql> alter table game_account add role char(20) not null after password;
+
+
+3、删除字段 
+
+	mysql> alter table game_account drop area;
+
+	
+4、修改字段名称 
+
+	mysql> alter table game_account change register_time time datetime not null ;
+
+	
+5、修改字段定义 
+
+	mysql> alter table game_account modify username char(30) not null;
+
+	
+6、添加约束 
+
+	1) 主键 
+	
+		a) 删除主键 
+		
+			mysql> alter table game_account drop primary key;
+	
+		b) 添加主键 
+	
+			mysql> alter table game_account add primary key (id);
+			
+
+	2) 惟一键约束
+	
+		a) 添加惟一键约束 
+		
+			mysql> alter table game_account add unique (username);
+
+		b) 删除惟一键约束 
+		
+			mysql> alter table game_account drop key password;
+
+			
+			
+ 			
+			
+四、数据操作 
+
+1、添加数据 
+
+	insert into 表名(字段名称, 字段名称, ....) values(值1，值2,....)
+			
+
+		mysql> insert into game_account values(1, "martin", "redhat", "战士", 100, "2000-11-1 10:10:10");
+		
+		
+		mysql> insert into game_account values(2, "robin", "redhat", "法师", 100, "2000-11-1 10:10:10"), (3, "xjs", "250", "渣渣", 1, "1995-12-12 12:25:00");
+		
+		
+		mysql> insert into game_account(username, password, role, time) values("mike", "789", "cike", "1998-12-1 1:00:00");
+
+
+
+2、删除数据 
+
+	delete from 表名 where 条件; 
+	
+	mysql> delete from game_account where username="mike";
+
+
+
+
+3、修改数据 
+
+	update 表名 set 字段名称=新值 where 条件 
+		
+	mysql> update game_account set password="nvshi" where username="xjs";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

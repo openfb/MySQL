@@ -1,0 +1,390 @@
+MHA集群
+
+	MHA --- Master High Availability	Master高可用 
+	
+	开源软件 
+	
+	作用：
+		应用于一主多从的环境
+		
+		周期性自动检测Master服务器的状态
+		一旦检测到Master服务器宕机，MHA会将一台slave服务器自动提升为Master服务器
+		同时MHA会尝试记录主服务器的二进制日志信息，将来在新选举出来的主服务器上自动应用二进制日志信息，确保数据的完整性 
+		会将其他slave服务器自动连接到新的Master服务器
+		对于前端应用程序全是透明的
+	
+
+MHA的角色：
+
+	1、mha-manager
+		
+		建议部署在独立的服务器上，使用对Master服务器的检测 
+	
+	2、mha-node
+
+		一般部署在所有的数据库服务器上 
+
+
+MHA的操作：
+
+	1) 周期性自动检测Master服务器的状态，自动提升新的Master服务器
+	2) 将所有从服务器到主服务器连接自动重置到新的主服务器
+	3) 记录主服务器的二进制日志信息
+	4) 自动检测所有从服务器中继日志，挑选出数据量多的从服务器，提升为主
+	5) 应用差异的中继日志
+		
+		
+		
+		
+		
+部署MHA集群
+
+	mha_manager		192.168.122.100				mha4mysql-manager    mha4mysql-node 
+	master			192.168.122.101				mha4mysql-node 
+	slave01			192.168.122.102				mha4mysql-node 
+	slave02			192.168.122.103				mha4mysql-node 
+		
+
+1、selinux, firewalld
+
+2、配置所有主机的ssh免密登录  
+
+[root@mha_manager ~]# ssh-keygen -t rsa
+[root@mha_manager .ssh]# mv id_rsa.pub authorized_keys
+
+
+[root@mha_manager ~]# scp -r /root/.ssh/ 192.168.122.101:/root/
+[root@mha_manager ~]# scp -r /root/.ssh/ 192.168.122.102:/root/
+[root@mha_manager ~]# scp -r /root/.ssh/ 192.168.122.103:/root/
+
+		
+在每台机器上验证
+
+[root@mha_manager ~]# for i in 101 102 103 100; do ssh 192.168.122.$i hostname; done
+		
+		
+3、所有主机配置主机名解析，时间同步 
+
+[root@mha_manager ~]# vim /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+192.168.122.100	mha_manager
+192.168.122.101	master
+192.168.122.102	slave01
+192.168.122.103	slave02
+	
+	
+[root@mha_manager ~]# for i in 100 101 102 103;
+> do
+> scp /etc/hosts 192.168.122.$i:/etc/hosts
+> ssh 192.168.122.$i ntpdate 172.16.8.252
+> done
+
+
+[root@mha_manager ~]# for i in 100 101 102 103
+> do
+> ssh 192.168.122.$i date
+> done
+Thu Aug 23 10:50:03 CST 2018
+Thu Aug 23 10:50:04 CST 2018
+Thu Aug 23 10:50:04 CST 2018
+Thu Aug 23 10:50:04 CST 2018
+
+		
+4、在mha_manager节点安装mha_manager,mha_node软件 
+
+
+[root@mha_manager ~]# yum install -y mha4mysql-manager mha4mysql-node
+
+
+5、在所有的数据库服务器上安装mha4mysql_node
+
+[root@mha_manager ~]# yum install -y  mha4mysql-node
+
+
+		
+		
+6、配置一主两从
+
+[root@master ~]# for i in 101 102 103
+> do
+> ssh 192.168.122.$i yum install -y mariadb-server
+> done
+
+
+master: 
+
+[mysqld]
+server_id=101
+log_bin=master-bin
+
+
+[root@master ~]# systemctl start mariadb
+[root@master ~]# systemctl enable mariadb
+
+MariaDB [(none)]> grant replication slave on *.* to 'repluser'@'192.168.122.102' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> grant replication slave on *.* to 'repluser'@'192.168.122.103' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> flush privileges;
+
+
+slave01:
+
+[mysqld]
+server_id=102
+log_bin=slave01-bin
+
+MariaDB [(none)]> change master to master_host="192.168.122.101", master_user="repluser", master_password="redhat", master_log_file="master-bin.000003", master_log_pos=245;
+Query OK, 0 rows affected (0.60 sec)
+
+MariaDB [(none)]> start slave;
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> show slave status\G;
+
+
+
+
+slave02:
+
+[mysqld]
+server_id=103
+log_bin=slave02-bin
+
+
+MariaDB [(none)]>  change master to master_host="192.168.122.101", master_user="repluser", master_password="redhat", master_log_file="master-bin.000003", master_log_pos=245;
+Query OK, 0 rows affected (0.14 sec)
+
+MariaDB [(none)]> start slave;
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> show slave status\G;
+
+
+
+7、确保三台数据库服务器分别存在允许所有数据库连接的远程复制用户
+
+MariaDB [(none)]> grant replication slave on *.* to 'repluser'@'192.168.122.101' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> flush privileges;
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> select user,host from mysql.user;
++----------+-----------------+
+| user     | host            |
++----------+-----------------+
+| root     | 127.0.0.1       |
+| repluser | 192.168.122.101 |
+| repluser | 192.168.122.102 |
+| repluser | 192.168.122.103 |
+| root     | ::1             |
+|          | localhost       |
+| root     | localhost       |
+|          | master          |
+| root     | master          |
++----------+-----------------+
+9 rows in set (0.00 sec)
+
+
+
+8、在数据库服务器上创建MHA的管理用户 (4个)
+
+MariaDB [(none)]> grant all on *.* to 'manager'@'192.168.122.100' identified by 'redhat';
+Query OK, 0 rows affected (0.00 sec)
+
+MariaDB [(none)]> grant all on *.* to 'manager'@'192.168.122.101' identified by 'redhat';
+
+MariaDB [(none)]> grant all on *.* to 'manager'@'192.168.122.102' identified by 'redhat';
+
+MariaDB [(none)]> grant all on *.* to 'manager'@'192.168.122.103' identified by 'redhat';
+
+MariaDB [(none)]> flush privileges;
+
+MariaDB [(none)]> select user,host from mysql.user;
++----------+-----------------+
+| user     | host            |
++----------+-----------------+
+| root     | 127.0.0.1       |
+| manager  | 192.168.122.100 |
+| manager  | 192.168.122.101 |
+| repluser | 192.168.122.101 |
+| manager  | 192.168.122.102 |
+| repluser | 192.168.122.102 |
+| manager  | 192.168.122.103 |
+| repluser | 192.168.122.103 |
+| root     | ::1             |
+|          | localhost       |
+| root     | localhost       |
+|          | master          |
+| root     | master          |
++----------+-----------------+
+13 rows in set (0.00 sec)
+
+
+
+9、配置mha_manager服务器 
+
+[root@mha_manager ~]# mkdir -p /masterha/app1		>>> 创建工作目录，用于保存日志 
+[root@mha_manager ~]# mkdir /etc/masterha			>>> 创建保存配置文件的目录  
+
+
+创建MHA的配置文件：
+
+[root@mha_manager ~]# vim /etc/masterha/app1.cnf
+
+	[server default]
+	manager_workdir=/masterha/app1					>>>指定MHA的工作目录 
+	manager_log=/masterha/app1/manager.log			>>>指定MHA的日志文件 
+	user=manager									>>>后台数据库存在的管理用户
+	password=redhat
+	ssh_user=root									>>>指定ssh免密登录的用户
+	repl_user=repluser								>>>指定主从复制用户
+	repl_password=redhat
+	ping_interval=1									>>>用于指定MHA检测master服务器的周期，单位为秒
+	shutdown_script=""
+
+	[server1]
+	hostname=192.168.122.101
+	port=3306
+	master_binlog_dir="/var/lib/mysql"					>>>用于指定该服务器保存二进制日志文件的目录 
+	candidate_master=1									>>>选举资格  
+
+	[server2]
+	hostname=192.168.122.102
+	port=3306
+	master_binlog_dir="/var/lib/mysql"
+	candidate_master=1
+
+	[server3]
+	hostname=192.168.122.103
+	port=3306
+	master_binlog_dir="/var/lib/mysql"
+	candidate_master=1 
+
+
+
+
+10、检测ssh免密是否正常 
+
+[root@mha_manager ~]# masterha_check_ssh --conf=/etc/masterha/app1.cnf 
+
+......
+
+Thu Aug 23 14:00:27 2018 - [info] All SSH connection tests passed successfully.
+
+
+11、检测主从复制是否正常
+
+[root@mha_manager ~]# masterha_check_repl --conf=/etc/masterha/app1.cnf 
+
+......
+
+192.168.122.101(192.168.122.101:3306) (current master)
+ +--192.168.122.102(192.168.122.102:3306)
+ +--192.168.122.103(192.168.122.103:3306)
+
+Thu Aug 23 14:01:29 2018 - [info] Checking replication health on 192.168.122.102..
+Thu Aug 23 14:01:29 2018 - [info]  ok.
+Thu Aug 23 14:01:29 2018 - [info] Checking replication health on 192.168.122.103..
+Thu Aug 23 14:01:29 2018 - [info]  ok.
+Thu Aug 23 14:01:29 2018 - [warning] master_ip_failover_script is not defined.
+Thu Aug 23 14:01:29 2018 - [warning] shutdown_script is not defined.
+Thu Aug 23 14:01:29 2018 - [info] Got exit code 0 (Not master dead).
+
+
+MySQL Replication Health is OK.
+
+
+
+常见问题： 
+
+	mysql command not found,   mysqlbinlog command not found 
+
+	mysql:  /usr/local/mysql 	
+	
+[root@slave01 ~]# ln -s /usr/local/mysql/bin/mysql /usr/bin 
+[root@slave01 ~]# ln -s /usr/local/mysql/bin/mysqlbinlog /usr/bin 
+
+	
+
+
+
+12、启动MHA
+
+[root@mha_manager ~]# masterha_manager --conf=/etc/masterha/app1.cnf  &
+[1] 4914
+[root@mha_manager ~]# ps aux | grep master
+root       888  0.0  0.2  91124  2168 ?        Ss   10:36   0:00 /usr/libexec/postfix/master -w
+root      4914  1.1  2.1 298780 21560 pts/0    S    14:04   0:00 perl /usr/bin/masterha_manager --conf=/etc/masterha/app1.cnf
+
+[root@mha_manager app1]# tail manager.log 
+192.168.122.101(192.168.122.101:3306) (current master)
+ +--192.168.122.102(192.168.122.102:3306)
+ +--192.168.122.103(192.168.122.103:3306)
+
+Thu Aug 23 14:04:15 2018 - [warning] master_ip_failover_script is not defined.
+Thu Aug 23 14:04:15 2018 - [warning] shutdown_script is not defined.
+Thu Aug 23 14:04:15 2018 - [info] Set master ping interval 1 seconds.
+Thu Aug 23 14:04:15 2018 - [warning] secondary_check_script is not defined. It is highly recommended setting it to check master reachability from two or more routes.
+Thu Aug 23 14:04:15 2018 - [info] Starting ping health check on 192.168.122.101(192.168.122.101:3306)..
+Thu Aug 23 14:04:15 2018 - [info] Ping(SELECT) succeeded, waiting until MySQL doesn't respond..
+
+
+
+
+13、验证master服务器的切换  
+
+停止master服务器的数据库服务 
+
+[root@master ~]# systemctl stop mariadb
+
+
+slave01: 
+
+MariaDB [(none)]> show slave hosts;
++-----------+------+------+-----------+
+| Server_id | Host | Port | Master_id |
++-----------+------+------+-----------+
+|       103 |      | 3306 |       102 |
++-----------+------+------+-----------+
+
+MariaDB [game]> create table account(id INT, name char(20));
+Query OK, 0 rows affected (0.13 sec)
+
+MariaDB [game]> insert into account values(1, "user01"),(2,"user02");
+
+
+
+
+slave02: 
+
+MariaDB [(none)]> show slave status\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.122.102
+                  Master_User: repluser
+
+
+
+
+
+14、恢复故障的主服务器 
+
+	主服务器故障修复后，需要人为手工执行change master to连接现有主服务器 
+	
+[root@master ~]# systemctl start mariadb
+
+在新主服务器上完全备份数据， 在故障修复机上恢复 
+
+[root@slave01 ~]# mysqldump -uroot -p --lock-all-tables --flush-logs --master-data=2 --all-databases > /tmp/all.sql
+Enter password: 
+
+[root@slave01 ~]# rsync -av /tmp/all.sql 192.168.122.101:/tmp/
+
+主从复制修复完成后，需要手工启动MHA_manager， 启动时需要将其工作目录下的app1.failover.complete删除 
+

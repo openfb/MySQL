@@ -1,0 +1,368 @@
+MySQL触发器
+
+触发器 	trigger 
+
+	作用：保证数据表的完整性约束
+	仅能由某张表insert, update, delete操作触发事件
+
+
+创建触发器的语法：
+
+	CREATE TRIGGER 触发器名称 {BEFORE|AFTER} {INSERT|UPDATE|DELETE} ON 表名 FOR EACH ROW 
+	BEGIN
+		触发器实体;
+	END
+
+	
+	
+	
+	
+示例01：
+
+1) 创建如下表
+
+mysql> CREATE DATABASE db01;
+
+mysql> USE db01;
+
+mysql> 
+mysql> CREATE TABLE student(
+    -> id INT PRIMARY KEY AUTO_INCREMENT,
+    -> name CHAR(10));
+
+mysql> INSERT INTO student(name) VALUES("tom");
+Query OK, 1 row affected (0.07 sec)
+
+mysql> CREATE TABLE number(count INT);
+
+mysql> INSERT INTO number VALUES(1);
+Query OK, 1 row affected (0.06 sec)
+
+
+2) 创建触发器，实现添加学生信息，数量自动增加
+
+mysql> \d !!
+mysql> 
+mysql> CREATE TRIGGER student_number_auto_add AFTER INSERT on student FOR EACH ROW
+    -> BEGIN
+    -> update number set count=count+1;
+    -> END!!
+
+	
+mysql> \d ;
+
+
+查看触发器 
+
+	mysql> show triggers\G;
+
+
+删除触发器
+
+	mysql> drop trigger student_number_auto_add;
+
+
+
+3) 创建触发器，实现删除学生信息，数量自动减少 
+
+mysql> \d !!
+mysql> CREATE TRIGGER student_number_auto_reduce AFTER DELETE ON student FOR EACH ROW
+    -> BEGIN
+    -> update number set count=count-1;
+    -> END!!
+Query OK, 0 rows affected (0.17 sec)
+
+mysql> \d ;
+
+
+
+
+
+示例02：
+
+1) 创建人员基本信息表、及工资表
+
+mysql> CREATE DATABASE db02;
+
+mysql> create table info(
+    -> id int primary key auto_increment,
+    -> name varchar(50),
+    -> gender enum("m","f"),
+    -> age int);
+
+
+mysql> create table salary(
+    -> id int primary key auto_increment,
+    -> name varchar(50),
+    -> salary double(10,2)
+    -> );
+
+
+2) 创建触发器，实现添加员工信息，同时添加其工资信息
+
+mysql>  \d !!
+mysql>  CREATE TRIGGER info_insert_trigger AFTER INSERT
+    ->  ON info FOR EACH ROW
+    ->  BEGIN
+    ->  insert into salary(name,salary) values(new.name,8000);
+    ->  END!!
+Query OK, 0 rows affected (0.05 sec)
+
+mysql> 
+mysql> 
+mysql> \d ;
+
+
+3) 创建触发器，实现删除员工信息同时删除其工资信息 
+
+mysql> \d !!
+mysql> CREATE TRIGGER info_delete_trigger AFTER DELETE
+    -> ON info FOR EACH ROW
+    -> BEGIN
+    -> DELETE FROM salary WHERE name=old.name;
+    -> END!!
+Query OK, 0 rows affected (0.05 sec)
+
+mysql> \d ;
+
+
+4) 创建触发器，实现员工信息修改后，工资信息同时修改 
+
+mysql> \d !!
+mysql> CREATE TRIGGER info_update_trigger AFTER UPDATE
+    -> ON info FOR EACH ROW
+    -> BEGIN
+    -> update salary set name=new.name where name=old.name;
+    -> END!!
+Query OK, 0 rows affected (0.05 sec)
+
+mysql> \d ;
+
+
+查看触发器
+
+mysql> SHOW TRIGGERS\G;
+
+
+删除触发器
+
+mysql> DROP TRIGGER info_insert_trigger;
+Query OK, 0 rows affected (0.03 sec)
+
+
+
+
+
+MySQL存储过程 ---- procedure, routine
+
+
+创建存储过程语法：
+
+CREATE PROCEDURE 存储过程名称(参数1,参数2,...)					形参
+BEGIN
+	sql_statement；
+END
+
+注意：参数可以省略不写
+
+
+调用存储过程：
+
+CALL 存储过程名称(参数1,参数2,....)								实参
+
+
+示例01：统计MySQL用户数量  
+
+mysql> \d !!
+mysql> CREATE PROCEDURE sp01()
+    -> BEGIN
+    -> select count(*) from mysql.user;
+    -> END!!
+Query OK, 0 rows affected (0.03 sec)
+
+
+mysql> CALL sp01();
+
+===========================================================
+
+mysql> CREATE DATABASE db03;
+Query OK, 1 row affected (0.00 sec)
+
+mysql> USE db03;
+Database changed
+mysql> 
+mysql> 
+mysql> CREATE TABLE tb01(
+    -> id INT,
+    -> str VARCHAR(100));
+Query OK, 0 rows affected (0.49 sec)
+
+mysql> \d !!
+mysql> CREATE PROCEDURE sp02()
+    -> BEGIN
+    -> declare i int default 1;
+    -> while(i<=10)do
+    -> insert into tb01 values(i,md5(i));
+    -> set i=i+1;
+    -> end while;
+    -> END!!
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> \d ;
+
+mysql> CALL sp02();
+
+
+
+存储过程的参数：
+
+类型：
+	IN 
+	OUT
+	INOUT
+
+
+示例01：
+
+mysql> \d !!
+mysql> CREATE PROCEDURE sp03(IN num int)
+    -> BEGIN
+    -> declare i int default 1;
+    -> while(i<=num)do
+    -> insert into tb01 values(i,md5(i));
+    -> set i=i+1;
+    -> end while;
+    -> END!!
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> \d ;
+
+mysql> call sp03(5);
+Query OK, 1 row affected (0.13 sec)
+
+
+
+示例02： 
+
+mysql> \d !!
+mysql> CREATE PROCEDURE sp04(OUT num int)
+    -> BEGIN
+    -> select count(*) into num from mysql.user;
+    -> END!!
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> \d ;
+
+mysql> call sp04(@aa);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> select @aa;
++------+
+| @aa  |
++------+
+|    6 |
++------+
+1 row in set (0.00 sec)
+
+mysql> 
+
+
+示例03：
+
+mysql> \d !!
+mysql> CREATE PROCEDURE s01(IN p1 VARCHAR(10), OUT p2 INT)
+    -> BEGIN
+    -> select count(*) into p2 from jiaowu.tutors where Gender=p1;
+    -> END!!
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> \d ;
+
+
+mysql> call s01("M",@bb);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> select @bb;
++------+
+| @bb  |
++------+
+|    7 |
++------+
+1 row in set (0.00 sec)
+
+
+mysql> CREATE PROCEDURE s02(IN p1 char(2), IN p2 int, OUT p3 int)
+    -> BEGIN
+    -> select count(*) into p3 from jiaowu.tutors where Gender=p1 AND Age > p2;
+    -> END!!
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> 
+mysql> \d ;
+mysql> call s02("F",40,@bb);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> select @bb;
++------+
+| @bb  |
++------+
+|    2 |
++------+
+1 row in set (0.00 sec)
+
+
+
+
+视图   view 
+
+	作用：加快数据查询速度 
+
+语法：
+
+CREATE VIEW view_name AS select_statement 
+
+创建视图
+
+mysql> CREATE VIEW student_courses AS
+    -> select students.Name, students.Age, students.Gender, courses.Cname
+    -> from students,courses
+    -> where students.CID1=courses.CID;
+Query OK, 0 rows affected (0.04 sec)
+
+
+查看视图 
+
+mysql> SHOW CREATE VIEW student_courses\G;
+
+
+删除视图
+
+mysql> DROP VIEW student_courses;
+
+
+
+索引   index
+
+	作用：加快数据查询速度
+
+方法1)
+
+CREATE INDEX index_name ON tb_name(col_name,....)
+
+mysql> CREATE INDEX account_level_index ON account(level);
+
+
+查看索引
+
+mysql> SHOW INDEX FROM account\G;
+
+删除索引 
+
+DROP INDEX index_name ON tbl_name
+
+
+方法2)
+
+ALTER TABLE tb_name ADD INDEX (col_name,....)
+
+
